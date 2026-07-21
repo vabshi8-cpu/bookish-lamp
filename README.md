@@ -1,6 +1,6 @@
-# 🐧 Ubuntu 24 Container Terminal
+# 🐧 Ubuntu 24 Terminal
 
-One-liner remote terminal with Tmate access, Docker CLI, and resource detection.
+Works inside any Linux container — no Docker needed. Uses proot.
 
 ## Quick Start
 
