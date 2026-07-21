@@ -19,22 +19,6 @@ echo -e "${Y}▸ Installing dependencies...${NC}"
 apt-get update -qq
 apt-get install -y -qq proot wget curl tmate sudo vim nano htop tmux 2>/dev/null || true
 
-# ── Start Tmate on HOST (reliable) ──
-echo -e "${Y}▸ Starting Tmate...${NC}"
-tmate -S /tmp/tmate.sock new-session -d -x 256x48 2>/dev/null || true
-tmate -S /tmp/tmate.sock wait tmate-ready 2>/dev/null || true
-
-TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null || echo "waiting...")
-TMATE_WEB=$(tmate -S /tmp/tmate.sock display -p "#{tmate_web}" 2>/dev/null || echo "waiting...")
-
-echo ""
-echo -e "${G}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${G}║  ${B}Tmate is running!${NC}"
-echo -e "${G}║${NC}  SSH:  ${C}${TMATE_SSH}${NC}"
-echo -e "${G}║${NC}  Web:  ${C}${TMATE_WEB}${NC}"
-echo -e "${G}╚══════════════════════════════════════════════════════╝${NC}"
-echo ""
-
 # ── Download Ubuntu 24.04 rootfs ──
 ROOTFS_DIR="$HOME/ubuntu24"
 mkdir -p "$ROOTFS_DIR"
@@ -46,7 +30,6 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
     
     echo -e "${Y}▸ Extracting rootfs (skipping /dev)...${NC}"
     cd "$ROOTFS_DIR"
-    # --exclude='dev' skips the mknod errors entirely
     tar --exclude='dev' -xJf /tmp/ubuntu24-rootfs.tar.xz || true
     rm -f /tmp/ubuntu24-rootfs.tar.xz
     
@@ -74,6 +57,25 @@ else
     echo -e "${G}▸ Ubuntu 24 rootfs already exists, skipping download.${NC}"
 fi
 
-# ── Drop into Ubuntu 24 ──
+# ── Start Tmate with proot as the shell ──
+echo -e "${Y}▸ Starting Tmate (Ubuntu 24 session)...${NC}"
+
+PROOT_CMD="proot -0 -w /home/dev -b /dev -b /proc -b /sys -r $ROOTFS_DIR /bin/bash --login"
+
+tmate -S /tmp/tmate.sock new-session -d -x 256x48 "$PROOT_CMD" 2>/dev/null || true
+tmate -S /tmp/tmate.sock wait tmate-ready 2>/dev/null || true
+
+TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null || echo "waiting...")
+TMATE_WEB=$(tmate -S /tmp/tmate.sock display -p "#{tmate_web}" 2>/dev/null || echo "waiting...")
+
+echo ""
+echo -e "${G}╔══════════════════════════════════════════════════════╗${NC}"
+echo -e "${G}║  ${B}Tmate is running! Connect from your PC:${NC}"
+echo -e "${G}║${NC}  SSH:  ${C}${TMATE_SSH}${NC}"
+echo -e "${G}║${NC}  Web:  ${C}${TMATE_WEB}${NC}"
+echo -e "${G}╚══════════════════════════════════════════════════════╝${NC}"
+echo ""
+
+# ── Drop into Ubuntu 24 on cloud terminal too ──
 echo -e "${Y}▸ Dropping into Ubuntu 24 shell... (type exit to return)${NC}"
-exec proot -0 -w /home/dev -b /dev -b /proc -b /sys -r "$ROOTFS_DIR" /bin/bash --login
+exec $PROOT_CMD
