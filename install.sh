@@ -34,6 +34,9 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
     rm -f /tmp/ubuntu24-rootfs.tar.xz
     
     mkdir -p "$ROOTFS_DIR/etc"
+    
+    # Remove existing symlink to avoid broken target path errors
+    rm -f "$ROOTFS_DIR/etc/resolv.conf"
     echo "nameserver 8.8.8.8" > "$ROOTFS_DIR/etc/resolv.conf"
     echo "nameserver 8.8.4.4" >> "$ROOTFS_DIR/etc/resolv.conf"
     
