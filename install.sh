@@ -35,26 +35,34 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
     fi
 
     echo -e "${Y}▸ Installing XFCE4 Desktop, VNC, and GUI utilities...${NC}"
-    proot -0 -r "$ROOTFS_DIR" -w / /bin/bash -c '
-        mkdir -p /etc/apt/apt.conf.d/
-        cat << "EOF" > /etc/apt/apt.conf.d/99proot-fix
+    
+    # Write setup script externally to avoid string parsing/heredoc errors
+    cat << 'EOF' > "$ROOTFS_DIR/tmp/guest_setup.sh"
+#!/bin/bash
+export DEBIAN_FRONTEND=noninteractive
+mkdir -p /etc/apt/apt.conf.d/
+cat << 'AEOF' > /etc/apt/apt.conf.d/99proot-fix
 APT::Sandbox::User "root";
 Acquire::ForceIPv4 "true";
 Acquire::AllowInsecureRepositories "true";
 Acquire::AllowDowngradeToInsecureRepositories "true";
-EOF
+AEOF
 
-        rm -rf /etc/apt/sources.list.d/*
-        cat << "EOF" > /etc/apt/sources.list
+rm -rf /etc/apt/sources.list.d/*
+cat << 'AEOF' > /etc/apt/sources.list
 deb [trusted=yes allow-insecure=yes] http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
 deb [trusted=yes allow-insecure=yes] http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
 deb [trusted=yes allow-insecure=yes] http://archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse
 deb [trusted=yes allow-insecure=yes] http://security.ubuntu.com/ubuntu noble-security main restricted universe multiverse
+AEOF
+
+apt-get update -y -qq || true
+apt-get install -y -qq xfce4 xfce4-goodies tigervnc-standalone-server websockify git sudo curl wget nano 2>/dev/null || true
 EOF
 
-        apt-get update -y -qq || true
-        apt-get install -y -qq xfce4 xfce4-goodies tigervnc-standalone-server websockify git sudo curl wget nano 2>/dev/null || true
-    '
+    chmod +x "$ROOTFS_DIR/tmp/guest_setup.sh"
+    proot -0 -r "$ROOTFS_DIR" /tmp/guest_setup.sh
+    rm -f "$ROOTFS_DIR/tmp/guest_setup.sh"
 
     echo -e "${Y}▸ Setting up noVNC web interface...${NC}"
     mkdir -p "$ROOTFS_DIR/usr/share/novnc"
@@ -110,7 +118,6 @@ done
 
 WEB_URL=$(grep -o 'https://[^[:space:]]*' /tmp/pinggy_gui.log | head -n 1 || echo "Failed to get tunnel")
 
-# Safely extract domain part to prevent parser errors
 if [ "$WEB_URL" != "Failed to get tunnel" ]; then
     DOMAIN_PART=$(echo "$WEB_URL" | awk -F/ '{print $3}')
 else
