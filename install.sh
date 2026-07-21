@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ── CRITICAL KERNEL DEADLOCK FIX ──
+export PROOT_NO_SECCOMP=1
+
 R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m' C='\033[0;36m' B='\033[1m' NC='\033[0m'
 
 echo -e "${C}╔══════════════════════════════════════════╗${NC}"
-echo -e "${C}║   Ubuntu 24 Terminal Setup               ║${NC}"
+echo -e "${C}║   Ubuntu 24 Terminal Setup (God Mode)    ║${NC}"
 echo -e "${C}╚══════════════════════════════════════════╝${NC}"
 
 # ── Detect AVAILABLE resources ──
@@ -16,8 +19,8 @@ echo -e "${G}▸ Available RAM:${NC} ${AVAIL_RAM_MB}MB  ${G}▸ CPU Cores:${NC} 
 
 # ── Install host dependencies ──
 echo -e "${Y}▸ Installing host dependencies...${NC}"
-apt-get update -qq || true
-apt-get install -y -qq proot wget curl tmate sudo vim nano htop tmux 2>/dev/null || true
+apt-get update -y || true
+apt-get install -y proot wget curl tmate sudo vim nano htop tmux 2>/dev/null || true
 
 # ── Download and Configure Ubuntu 24.04 ──
 ROOTFS_DIR="$HOME/ubuntu24"
@@ -33,32 +36,36 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
     tar -xJf /tmp/ubuntu24-rootfs.tar.xz 2>/dev/null || true
     rm -f /tmp/ubuntu24-rootfs.tar.xz
     
-    mkdir -p "$ROOTFS_DIR/dev" "$ROOTFS_DIR/etc" "$ROOTFS_DIR/proc" "$ROOTFS_DIR/sys"
+    mkdir -p "$ROOTFS_DIR/dev" "$ROOTFS_DIR/etc" "$ROOTFS_DIR/proc" "$ROOTFS_DIR/sys" "$ROOTFS_DIR/tmp"
     touch "$ROOTFS_DIR/dev/null" 2>/dev/null || true
 
-    rm -f "$ROOTFS_DIR/etc/resolv.conf"
-    echo "nameserver 8.8.8.8" > "$ROOTFS_DIR/etc/resolv.conf"
-    echo "nameserver 8.8.4.4" >> "$ROOTFS_DIR/etc/resolv.conf"
+    # FIX: Inherit host network to prevent DNS blackholes
+    cp /etc/resolv.conf "$ROOTFS_DIR/etc/resolv.conf" 2>/dev/null || echo "nameserver 8.8.8.8" > "$ROOTFS_DIR/etc/resolv.conf"
     
-    echo -e "${Y}▸ Bypassing APT limits & fixing cache permissions...${NC}"
+    echo -e "${Y}▸ Fixing APT & Downloading Keyring on HOST...${NC}"
     mkdir -p "$ROOTFS_DIR/var/cache/swcatalog/cache"
     chmod -R 777 "$ROOTFS_DIR/var/cache/swcatalog" 2>/dev/null || true
     
-    # Execute bootstrapper inside proot with STDIN redirected to prevent hangs
+    # Download keyring outside of proot to ensure network doesn't hang
+    wget -q "http://archive.ubuntu.com/ubuntu/pool/main/u/ubuntu-keyring/ubuntu-keyring_2023.11.28.1_all.deb" -O "$ROOTFS_DIR/tmp/keyring.deb"
+    
+    echo -e "${Y}▸ Bootstrapping Packages (You will see text scrolling now!)...${NC}"
+    
+    # Run proot without silent flags so you can see it working
     proot -0 -r "$ROOTFS_DIR" -w / /bin/bash -c '
         export DEBIAN_FRONTEND=noninteractive
         
-        # EXTRACT files directly! DO NOT use dpkg -i to avoid infinite hangs.
-        wget -q "http://archive.ubuntu.com/ubuntu/pool/main/u/ubuntu-keyring/ubuntu-keyring_2023.11.28.1_all.deb" -O /tmp/keyring.deb
+        echo "[+] Extracting Keyring..."
         dpkg-deb -x /tmp/keyring.deb /
         rm -f /tmp/keyring.deb
-        
-        # Force permissions so the unprivileged _apt user can read them
         chmod -R 755 /etc/apt /usr/share/keyrings 2>/dev/null || true
         
-        # Install packages (using < /dev/null kills any prompts that would freeze the script)
-        apt-get update -qq < /dev/null
-        apt-get install -y -qq curl wget vim nano htop tmux sudo openssh-client python3 < /dev/null
+        echo "[+] Updating APT..."
+        apt-get update -y < /dev/null
+        
+        echo "[+] Installing core packages..."
+        apt-get install -y curl wget vim nano htop tmux sudo openssh-client python3 < /dev/null
+        
         apt-get clean
     '
     
@@ -76,7 +83,7 @@ else
     echo -e "${G}▸ Ubuntu 24 rootfs already exists, skipping download.${NC}"
 fi
 
-# ── Start Tmate (Bulletproof Window Sizing) ──
+# ── Start Tmate ──
 echo -e "${Y}▸ Starting Tmate (Ubuntu 24 session)...${NC}"
 
 PROOT_CMD="proot -0 -r $ROOTFS_DIR -b /dev -b /proc -b /sys -w /home/dev /bin/bash"
