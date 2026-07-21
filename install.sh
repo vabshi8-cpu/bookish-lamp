@@ -4,7 +4,7 @@ set +e
 export PROOT_NO_SECCOMP=1
 export DEBIAN_FRONTEND=noninteractive
 
-echo "=== Ubuntu 24.04 GUI Setup ==="
+echo "=== Ubuntu 24.04 COOK Setup ==="
 
 ROOTFS_DIR="$HOME/ubuntu24"
 mkdir -p "$ROOTFS_DIR"
@@ -74,14 +74,19 @@ proot -0 -r "$ROOTFS_DIR" -b /dev -b /proc -b /sys websockify --web /usr/share/n
 echo "Starting tunnel..."
 ssh -o StrictHostKeyChecking=no -p 443 -R0:localhost:6080 free.pinggy.io > /tmp/pinggy_gui.log 2>&1 &
 
-sleep 6
-
+echo "Waiting for tunnel URL..."
 WEB_URL=""
-if [ -f /tmp/pinggy_gui.log ]; then
-    WEB_URL=$(grep -o 'https://[^[:space:]]*pinggy\.link' /tmp/pinggy_gui.log | head -n 1)
-fi
+for i in {1..15}; do
+    if [ -f /tmp/pinggy_gui.log ]; then
+        WEB_URL=$(grep -o 'https://[^[:space:]]*pinggy[^[:space:]]*' /tmp/pinggy_gui.log | head -n 1)
+        if [ -n "$WEB_URL" ]; then
+            break
+        fi
+    fi
+    sleep 1
+done
 
-[ -z "$WEB_URL" ] && WEB_URL="https://placeholder-url-check-log"
+[ -z "$WEB_URL" ] && WEB_URL="https://failed-to-grab-url"
 DOMAIN_PART=$(echo "$WEB_URL" | cut -d'/' -f3)
 
 echo ""
