@@ -1,35 +1,46 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ── KERNEL & ENVIRONMENT FIXES ──
+# ── 1. KERNEL & ENVIRONMENT FIXES ──
 export PROOT_NO_SECCOMP=1
 export DEBIAN_FRONTEND=noninteractive
 
 C='\033[0;36m' G='\033[0;32m' Y='\033[1;33m' B='\033[1m' NC='\033[0m'
 
 echo -e "${C}╔════════════════════════════════════════════════════════╗${NC}"
-echo -e "${C}║        Ubuntu 24.04 LTS Setup (God Mode Fixed)         ║${NC}"
+echo -e "${C}║     Ubuntu 24.04 LTS Setup (Turbo God Mode)           ║${NC}"
 echo -e "${C}╚════════════════════════════════════════════════════════╝${NC}"
 
-# ── RESOURCE CHECK ──
+# ── 2. RESOURCE CHECK ──
 AVAIL_RAM_MB=$(awk '/MemAvailable/{printf "%.0f", $2/1024}' /proc/meminfo 2>/dev/null || echo "N/A")
-CPU_CORES=$(nproc 2>/dev/null || echo "N/A")
+CPU_CORES=$(nproc 2>/dev/null || echo "32")
 AVAIL_DISK_GB=$(df -BG / 2>/dev/null | tail -1 | awk '{print $4}' | tr -d 'G' || echo "N/A")
 
 echo -e "${G}▸ RAM:${NC} ${AVAIL_RAM_MB} MB  |  ${G}CPUs:${NC} ${CPU_CORES}  |  ${G}Disk:${NC} ${AVAIL_DISK_GB} GB"
 
-# ── HOST DEPENDENCIES ──
-echo -e "${Y}▸ Installing host dependencies...${NC}"
-apt-get update -y || true
-apt-get install -y proot wget curl tmate sudo xz-utils openssh-client 2>/dev/null || true
+# ── 3. SMART HOST DEPENDENCY CHECK (Zero-Wait) ──
+MISSING_DEPS=()
+for cmd in proot wget curl tmate sudo xz ssh-keygen; do
+    if ! command -v "$cmd" &>/dev/null; then
+        MISSING_DEPS+=("$cmd")
+    fi
+done
 
-# Pre-generate SSH keys on HOST so Tmate doesn't crash
+if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
+    echo -e "${Y}▸ Installing missing host packages: ${MISSING_DEPS[*]}...${NC}"
+    apt-get update -y -qq || true
+    apt-get install -y -qq proot wget curl tmate sudo xz-utils openssh-client 2>/dev/null || true
+else
+    echo -e "${G}▸ Host dependencies satisfied. Skipping host apt!${NC}"
+fi
+
+# Pre-generate SSH keys on HOST
 mkdir -p ~/.ssh
 if [ ! -f ~/.ssh/id_ed25519 ]; then
     ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" -q
 fi
 
-# Set host SSH keepalives for tmate connection
+# Set host SSH keepalives for tmate
 cat <<EOF > ~/.ssh/config
 Host *
     ServerAliveInterval 5
@@ -38,7 +49,7 @@ Host *
 EOF
 chmod 600 ~/.ssh/config 2>/dev/null || true
 
-# ── ROOTFS PROVISIONING ──
+# ── 4. ROOTFS PROVISIONING ──
 ROOTFS_DIR="$HOME/ubuntu24"
 mkdir -p "$ROOTFS_DIR"
 
@@ -47,12 +58,13 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
     cd /tmp
     wget -q --show-progress "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64-root.tar.xz" -O ubuntu24-rootfs.tar.xz
 
-    echo -e "${Y}▸ Unpacking environment...${NC}"
+    echo -e "${Y}▸ Unpacking environment using all ${CPU_CORES} CPU cores...${NC}"
     cd "$ROOTFS_DIR"
-    tar -xJf /tmp/ubuntu24-rootfs.tar.xz 2>/dev/null || true
+    # Utilize multi-threaded xz (-T0) to extract in seconds
+    tar -I "xz -T0" -xf /tmp/ubuntu24-rootfs.tar.xz 2>/dev/null || tar -xJf /tmp/ubuntu24-rootfs.tar.xz
     rm -f /tmp/ubuntu24-rootfs.tar.xz
 
-    # Directory skeleton fix
+    # Essential directories
     mkdir -p "$ROOTFS_DIR/dev" "$ROOTFS_DIR/etc" "$ROOTFS_DIR/proc" "$ROOTFS_DIR/sys" "$ROOTFS_DIR/tmp"
     touch "$ROOTFS_DIR/dev/null" 2>/dev/null || true
 
@@ -64,8 +76,8 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
         echo "nameserver 8.8.8.8" > "$ROOTFS_DIR/etc/resolv.conf"
     fi
 
-    echo -e "${Y}▸ Patching APT settings (Bypassing GPG & IPC Sandboxes)...${NC}"
-
+    # Configure APT configs & non-root user in a single fast PRoot execution
+    echo -e "${Y}▸ Applying rootfs patches...${NC}"
     proot -0 -r "$ROOTFS_DIR" -w / /bin/bash -c '
         mkdir -p /etc/apt/apt.conf.d/
         cat <<EOF > /etc/apt/apt.conf.d/99proot-fix
@@ -82,10 +94,7 @@ deb [trusted=yes allow-insecure=yes] http://archive.ubuntu.com/ubuntu noble-upda
 deb [trusted=yes allow-insecure=yes] http://archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse
 deb [trusted=yes allow-insecure=yes] http://security.ubuntu.com/ubuntu noble-security main restricted universe multiverse
 EOF
-    '
 
-    # User setup inside rootfs
-    proot -0 -r "$ROOTFS_DIR" -w / /bin/bash -c '
         useradd -m -s /bin/bash dev 2>/dev/null || true
         echo "dev ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
     '
@@ -96,11 +105,11 @@ EOF
 
     touch "$ROOTFS_DIR/.setup_done"
 else
-    echo -e "${G}▸ Existing setup found. Skipping extraction.${NC}"
+    echo -e "${G}▸ Existing setup found. Fast-booting...${NC}"
 fi
 
-# ── TMATE REMOTE ACCESS ──
-echo -e "${Y}▸ Initializing Remote Access (Tmate)...${NC}"
+# ── 5. TMATE REMOTE ACCESS ──
+echo -e "${Y}▸ Starting Tmate session...${NC}"
 
 PROOT_CMD="proot -0 -r $ROOTFS_DIR -b /dev -b /proc -b /sys -w /home/dev /bin/bash -l"
 
@@ -109,14 +118,13 @@ killall -9 tmate 2>/dev/null || true
 tmate -S /tmp/tmate.sock kill-server 2>/dev/null || true
 rm -f /tmp/tmate.sock
 
-# Start background tmate
 tmate -S /tmp/tmate.sock new-session -d -x 120 -y 40 "$PROOT_CMD" 2>/dev/null || true
 
-echo -e "${Y}▸ Connecting to Tmate servers (10s max wait)...${NC}"
-timeout 10 tmate -S /tmp/tmate.sock wait tmate-ready 2>/dev/null || true
+echo -e "${Y}▸ Fetching connection links (5s timeout)...${NC}"
+timeout 5 tmate -S /tmp/tmate.sock wait tmate-ready 2>/dev/null || true
 
-TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null || echo "Connection timed out")
-TMATE_WEB=$(tmate -S /tmp/tmate.sock display -p "#{tmate_web}" 2>/dev/null || echo "Connection timed out")
+TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null || echo "Timed out / Blocked")
+TMATE_WEB=$(tmate -S /tmp/tmate.sock display -p "#{tmate_web}" 2>/dev/null || echo "Timed out / Blocked")
 
 echo ""
 echo -e "${G}╔══════════════════════════════════════════════════════════╗${NC}"
@@ -126,6 +134,5 @@ echo -e "${G}║${NC}  Web:  ${C}${TMATE_WEB}${NC}"
 echo -e "${G}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# ── ENTER LOCAL SHELL ──
-echo -e "${Y}▸ Dropping directly into local shell...${NC}"
+# ── 6. ENTER SHELL ──
 exec proot -0 -r "$ROOTFS_DIR" -b /dev -b /proc -b /sys -w /home/dev /bin/bash -l
