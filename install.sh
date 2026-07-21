@@ -7,10 +7,10 @@ echo -e "${C}╔═════════════════════�
 echo -e "${C}║   ${B}Ubuntu 24 Terminal Setup${C}               ║${NC}"
 echo -e "${C}╚══════════════════════════════════════════╝${NC}"
 
-# ── Detect AVAILABLE resources ──
-AVAIL_RAM_MB=$(free -m | awk '/Mem:/{print $7}')
-CPU_CORES=$(nproc)
-AVAIL_DISK_GB=$(df -BG / | tail -1 | awk '{print $4}' | tr -d 'G')
+# ── Detect AVAILABLE resources (no `free` command needed) ──
+AVAIL_RAM_MB=$(awk '/MemAvailable/{printf "%.0f", $2/1024}' /proc/meminfo 2>/dev/null || echo "N/A")
+CPU_CORES=$(nproc 2>/dev/null || echo "N/A")
+AVAIL_DISK_GB=$(df -BG / 2>/dev/null | tail -1 | awk '{print $4}' | tr -d 'G' || echo "N/A")
 
 echo -e "${G}▸ Available RAM:${NC} ${AVAIL_RAM_MB}MB  ${G}▸ CPU Cores:${NC} ${CPU_CORES}  ${G}▸ Available Disk:${NC} ${AVAIL_DISK_GB}GB"
 
@@ -62,20 +62,32 @@ echo -e "${Y}▸ Starting Tmate (Ubuntu 24 session)...${NC}"
 
 PROOT_CMD="proot -0 -w /home/dev -b /dev -b /proc -b /sys -r $ROOTFS_DIR /bin/bash --login"
 
+# Kill old session if running
+tmate -S /tmp/tmate.sock kill-server 2>/dev/null || true
+
 tmate -S /tmp/tmate.sock new-session -d -x 256x48 "$PROOT_CMD" 2>/dev/null || true
 tmate -S /tmp/tmate.sock wait tmate-ready 2>/dev/null || true
 
-TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null || echo "waiting...")
+# Wait for SSH URL to generate (key exchange can take a few seconds)
+TMATE_SSH=""
+for i in {1..15}; do
+    TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null)
+    if [[ "$TMATE_SSH" == *"ssh"* ]]; then
+        break
+    fi
+    sleep 1
+done
+
 TMATE_WEB=$(tmate -S /tmp/tmate.sock display -p "#{tmate_web}" 2>/dev/null || echo "waiting...")
 
 echo ""
 echo -e "${G}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${G}║  ${B}Tmate is running! Connect from your PC:${NC}"
+echo -e "${G}║  ${B}Setup Complete! Connect from your PC:${NC}"
 echo -e "${G}║${NC}  SSH:  ${C}${TMATE_SSH}${NC}"
 echo -e "${G}║${NC}  Web:  ${C}${TMATE_WEB}${NC}"
 echo -e "${G}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
 
 # ── Drop into Ubuntu 24 on cloud terminal too ──
-echo -e "${Y}▸ Dropping into Ubuntu 24 shell... (type exit to return)${NC}"
+echo -e "${Y}▸ Dropping into Ubuntu 24 shell locally...${NC}"
 exec $PROOT_CMD
