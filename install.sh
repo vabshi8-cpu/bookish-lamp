@@ -4,7 +4,7 @@ set +e
 export PROOT_NO_SECCOMP=1
 export DEBIAN_FRONTEND=noninteractive
 
-echo "=== Ubuntu 24.04 COOK Setup ==="
+echo "=== Ubuntu 24.04 GUI Setup ==="
 
 ROOTFS_DIR="$HOME/ubuntu24"
 mkdir -p "$ROOTFS_DIR"
@@ -78,13 +78,17 @@ echo "Waiting for tunnel URL..."
 WEB_URL=""
 for i in {1..15}; do
     if [ -f /tmp/pinggy_gui.log ]; then
-        WEB_URL=$(grep -o 'https://[^[:space:]]*pinggy[^[:space:]]*' /tmp/pinggy_gui.log | head -n 1)
+        WEB_URL=$(grep -o 'https://[^[:space:]]*run\.pinggy-free\.link' /tmp/pinggy_gui.log | head -n 1)
         if [ -n "$WEB_URL" ]; then
             break
         fi
     fi
     sleep 1
 done
+
+echo "--- RAW PINGGY LOG START ---"
+cat /tmp/pinggy_gui.log
+echo "--- RAW PINGGY LOG END ---"
 
 [ -z "$WEB_URL" ] && WEB_URL="https://failed-to-grab-url"
 DOMAIN_PART=$(echo "$WEB_URL" | cut -d'/' -f3)
