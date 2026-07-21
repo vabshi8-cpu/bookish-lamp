@@ -19,6 +19,22 @@ echo -e "${Y}▸ Installing dependencies...${NC}"
 apt-get update -qq
 apt-get install -y -qq proot wget curl tmate sudo vim nano htop tmux 2>/dev/null || true
 
+# ── Start Tmate on HOST (reliable) ──
+echo -e "${Y}▸ Starting Tmate...${NC}"
+tmate -S /tmp/tmate.sock new-session -d -x 256x48 2>/dev/null || true
+tmate -S /tmp/tmate.sock wait tmate-ready 2>/dev/null || true
+
+TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null || echo "waiting...")
+TMATE_WEB=$(tmate -S /tmp/tmate.sock display -p "#{tmate_web}" 2>/dev/null || echo "waiting...")
+
+echo ""
+echo -e "${G}╔══════════════════════════════════════════════════════╗${NC}"
+echo -e "${G}║  ${B}Tmate is running!${NC}"
+echo -e "${G}║${NC}  SSH:  ${C}${TMATE_SSH}${NC}"
+echo -e "${G}║${NC}  Web:  ${C}${TMATE_WEB}${NC}"
+echo -e "${G}╚══════════════════════════════════════════════════════╝${NC}"
+echo ""
+
 # ── Download Ubuntu 24.04 rootfs ──
 ROOTFS_DIR="$HOME/ubuntu24"
 mkdir -p "$ROOTFS_DIR"
@@ -30,28 +46,25 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
     
     echo -e "${Y}▸ Extracting rootfs (skipping /dev)...${NC}"
     cd "$ROOTFS_DIR"
-    tar --exclude='./dev' -xJf /tmp/ubuntu24-rootfs.tar.xz
+    # --exclude='dev' skips the mknod errors entirely
+    tar --exclude='dev' -xJf /tmp/ubuntu24-rootfs.tar.xz || true
     rm -f /tmp/ubuntu24-rootfs.tar.xz
     
-    # ── Setup resolv ──
     echo "nameserver 8.8.8.8" > "$ROOTFS_DIR/etc/resolv.conf"
     echo "nameserver 8.8.4.4" >> "$ROOTFS_DIR/etc/resolv.conf"
     
-    # ── Install packages inside rootfs ──
     echo -e "${Y}▸ Installing packages inside Ubuntu 24...${NC}"
     proot -0 -w / -b /dev -b /proc -b /sys -r "$ROOTFS_DIR" /bin/bash -c '
         apt-get update -qq
-        apt-get install -y -qq curl wget vim nano htop tmux tmate sudo ca-certificates openssh-client python3 2>/dev/null
+        apt-get install -y -qq curl wget vim nano htop tmux sudo ca-certificates openssh-client python3 2>/dev/null
         apt-get clean
     '
     
-    # ── Create user ──
     proot -0 -w / -b /dev -b /proc -b /sys -r "$ROOTFS_DIR" /bin/bash -c '
         useradd -m -s /bin/bash dev
         echo "dev ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
     '
     
-    # ── Copy .bashrc ──
     REPO_RAW="https://raw.githubusercontent.com/vabshi8-cpu/bookish-lamp/main"
     curl -sL "${REPO_RAW}/.bashrc" -o "$ROOTFS_DIR/home/dev/.bashrc"
     chown 1000:1000 "$ROOTFS_DIR/home/dev/.bashrc" 2>/dev/null || true
@@ -61,54 +74,6 @@ else
     echo -e "${G}▸ Ubuntu 24 rootfs already exists, skipping download.${NC}"
 fi
 
-# ── Start Tmate inside proot ──
-echo -e "${Y}▸ Starting Tmate inside Ubuntu 24...${NC}"
-
-mkdir -p /tmp/tmate-sock
-chmod 777 /tmp/tmate-sock
-
-proot -0 -w /home/dev -b /dev -b /proc -b /sys -b /tmp/tmate-sock:/tmp/tmate-sock -r "$ROOTFS_DIR" /bin/bash -c '
-    source /home/dev/.bashrc
-    
-    RAM_MB=$(free -m | awk "/Mem:/{print \$7}")
-    CPU_N=$(nproc)
-    DISK_GB=$(df -hG / | tail -1 | awk "{print \$4}" | tr -d "G")
-    
-    echo ""
-    echo -e "\033[0;36m╔═══════════════════════════════════════════════════╗\033[0m"
-    echo -e "\033[0;36m║\033[1;37m  🐧 Ubuntu 24.04 Terminal (proot)\033[0m"
-    echo -e "\033[0;36m╠═══════════════════════════════════════════════════╣\033[0m"
-    echo -e "\033[0;36m║\033[0m  Avail RAM:  \033[1;32m${RAM_MB}MB\033[0m"
-    echo -e "\033[0;36m║\033[0m  CPU Cores:  \033[1;32m${CPU_N}\033[0m"
-    echo -e "\033[0;36m║\033[0m  Avail Disk: \033[1;32m${DISK_GB}GB\033[0m"
-    echo -e "\033[0;36m╚═══════════════════════════════════════════════════╝\033[0m"
-    echo ""
-    
-    tmate -S /tmp/tmate-sock/tmate.sock new-session -d -x 256x48 2>/dev/null || true
-    tmate -S /tmp/tmate-sock/tmate.sock wait tmate-ready 2>/dev/null || true
-    
-    TMATE_SSH=$(tmate -S /tmp/tmate-sock/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null)
-    TMATE_WEB=$(tmate -S /tmp/tmate-sock/tmate.sock display -p "#{tmate_web}" 2>/dev/null)
-    
-    echo -e "\033[1;33m▸ Tmate SSH:  ${TMATE_SSH}\033[0m"
-    echo -e "\033[1;33m▸ Tmate Web:  ${TMATE_WEB}\033[0m"
-    echo ""
-' &
-
-sleep 5
-
-# ── Read tmate output ──
-TMATE_SSH=$(tmate -S /tmp/tmate-sock/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null || echo "waiting...")
-TMATE_WEB=$(tmate -S /tmp/tmate-sock/tmate.sock display -p "#{tmate_web}" 2>/dev/null || echo "waiting...")
-
-echo ""
-echo -e "${G}╔══════════════════════════════════════════╗${NC}"
-echo -e "${G}║  ${B}Ubuntu 24 is running!${NC}"
-echo -e "${G}║${NC}  Tmate SSH: ${C}${TMATE_SSH}${NC}"
-echo -e "${G}║${NC}  Tmate Web:  ${C}${TMATE_WEB}${NC}"
-echo -e "${G}╚══════════════════════════════════════════╝${NC}"
-echo ""
-
-# ── Drop directly into the Ubuntu 24 shell ──
+# ── Drop into Ubuntu 24 ──
 echo -e "${Y}▸ Dropping into Ubuntu 24 shell... (type exit to return)${NC}"
-exec proot -0 -w /home/dev -b /dev -b /proc -b /sys -b /tmp/tmate-sock:/tmp/tmate-sock -r "$ROOTFS_DIR" /bin/bash --login
+exec proot -0 -w /home/dev -b /dev -b /proc -b /sys -r "$ROOTFS_DIR" /bin/bash --login
