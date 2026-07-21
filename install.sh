@@ -6,6 +6,10 @@ export DEBIAN_FRONTEND=noninteractive
 
 echo "=== Ubuntu 24.04 GUI Setup ==="
 
+# Install host-side dependencies required for networking & proxying
+apt-get update -y -qq || true
+apt-get install -y -qq websockify openssh-client wget procps git 2>/dev/null || true
+
 ROOTFS_DIR="$HOME/ubuntu24"
 mkdir -p "$ROOTFS_DIR"
 
@@ -38,7 +42,7 @@ deb [trusted=yes] http://security.ubuntu.com/ubuntu noble-security main restrict
 AEOF
 
 apt-get update -y -qq || true
-apt-get install -y -qq xfce4 xfce4-goodies tigervnc-standalone-server websockify git sudo curl wget nano procps 2>/dev/null || true
+apt-get install -y -qq xfce4 xfce4-goodies tigervnc-standalone-server sudo curl wget nano 2>/dev/null || true
 EOF
 
     chmod +x /tmp/setup.sh
@@ -68,8 +72,8 @@ echo "Starting VNC server..."
 proot -0 -r "$ROOTFS_DIR" -b /dev -b /proc -b /sys vncserver -kill :1 2>/dev/null || true
 proot -0 -r "$ROOTFS_DIR" -b /dev -b /proc -b /sys vncserver :1 -geometry 1280x720 -depth 24 2>/dev/null || true
 
-echo "Starting websockify..."
-proot -0 -r "$ROOTFS_DIR" -b /dev -b /proc -b /sys websockify --web /usr/share/novnc/ 6080 localhost:5901 > /dev/null 2>&1 &
+echo "Starting websockify on host..."
+websockify --web "$ROOTFS_DIR/usr/share/novnc/" 6080 localhost:5901 > /dev/null 2>&1 &
 
 echo "Starting tunnel..."
 ssh -o StrictHostKeyChecking=no -p 443 -R0:localhost:6080 free.pinggy.io > /tmp/pinggy_gui.log 2>&1 &
@@ -78,17 +82,13 @@ echo "Waiting for tunnel URL..."
 WEB_URL=""
 for i in {1..15}; do
     if [ -f /tmp/pinggy_gui.log ]; then
-        WEB_URL=$(grep -o 'https://[^[:space:]]*run\.pinggy-free\.link' /tmp/pinggy_gui.log | head -n 1)
+        WEB_URL=$(grep -o 'https://[^[:space:]]*pinggy[^[:space:]]*' /tmp/pinggy_gui.log | head -n 1)
         if [ -n "$WEB_URL" ]; then
             break
         fi
     fi
     sleep 1
 done
-
-echo "--- RAW PINGGY LOG START ---"
-cat /tmp/pinggy_gui.log
-echo "--- RAW PINGGY LOG END ---"
 
 [ -z "$WEB_URL" ] && WEB_URL="https://failed-to-grab-url"
 DOMAIN_PART=$(echo "$WEB_URL" | cut -d'/' -f3)
