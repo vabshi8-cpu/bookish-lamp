@@ -4,7 +4,7 @@ set -euo pipefail
 R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m' C='\033[0;36m' B='\033[1m' NC='\033[0m'
 
 echo -e "${C}╔══════════════════════════════════════════╗${NC}"
-echo -e "${C}║   Ubuntu 24 Terminal Setup               ║${NC}"
+echo -e "${C}║   COOKIES FOR EVERYONE YIPEEE IM SI      ║${NC}"
 echo -e "${C}╚══════════════════════════════════════════╝${NC}"
 
 # ── Detect AVAILABLE resources (no `free` command needed) ──
@@ -42,6 +42,8 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
     
     echo -e "${Y}▸ Installing packages inside Ubuntu 24...${NC}"
     proot -0 -w / -b /dev -b /proc -b /sys -r "$ROOTFS_DIR" /bin/bash -c '
+        mkdir -p /usr/share/keyrings
+        curl -sL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x871920D1991BC93C" | gpg --dearmor -o /usr/share/keyrings/ubuntu-archive-keyring.gpg 2>/dev/null || true
         apt-get update -qq
         apt-get install -y -qq curl wget vim nano htop tmux sudo ca-certificates openssh-client python3 2>/dev/null
         apt-get clean
