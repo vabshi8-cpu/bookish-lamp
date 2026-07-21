@@ -119,19 +119,34 @@ killall -9 tmate 2>/dev/null || true
 tmate -S /tmp/tmate.sock kill-server 2>/dev/null || true
 rm -f /tmp/tmate.sock
 
+# Start tmate in background with logging enabled
 tmate -S /tmp/tmate.sock new-session -d -x 120 -y 40 "$PROOT_CMD" 2>/dev/null || true
 
-echo -e "${Y}▸ Fetching connection links (5s timeout)...${NC}"
-timeout 5 tmate -S /tmp/tmate.sock wait tmate-ready 2>/dev/null || true
+echo -e "${Y}▸ Waiting for Tmate connection (15s timeout)...${NC}"
+# Give it a realistic 15 seconds to negotiate keys and connect
+for i in {1..15}; do
+    if tmate -S /tmp/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null | grep -q "ssh"; then
+        break
+    fi
+    sleep 1
+done
 
-TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null || echo "Timed out / Blocked")
-TMATE_WEB=$(tmate -S /tmp/tmate.sock display -p "#{tmate_web}" 2>/dev/null || echo "Timed out / Blocked")
+TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null || echo "")
+TMATE_WEB=$(tmate -S /tmp/tmate.sock display -p "#{tmate_web}" 2>/dev/null || echo "")
+
+# If links are still empty, print the debug log to see why it failed
+if [ -z "$TMATE_SSH" ]; then
+    echo -e "${R}▸ Tmate failed to connect. Debug log:${NC}"
+    tmate -S /tmp/tmate.sock display -p "#{tmate_message}" 2>/dev/null || echo "No message available"
+    echo ""
+    echo -e "${Y}💡 Note: If you are in a restricted sandbox, outbound port 22 (SSH) might be blocked by the host firewall.${NC}"
+fi
 
 echo ""
 echo -e "${G}╔══════════════════════════════════════════════════════════╗${NC}"
 echo -e "${G}║  ${B}Ubuntu 24 Ready! Connection info:${NC}"
-echo -e "${G}║${NC}  SSH:  ${C}${TMATE_SSH}${NC}"
-echo -e "${G}║${NC}  Web:  ${C}${TMATE_WEB}${NC}"
+echo -e "${G}║${NC}  SSH:  ${C}${TMATE_SSH:-"Blocked / Timed Out"}${NC}"
+echo -e "${G}║${NC}  Web:  ${C}${TMATE_WEB:-"Blocked / Timed Out"}${NC}"
 echo -e "${G}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
