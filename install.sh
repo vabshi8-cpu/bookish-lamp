@@ -28,34 +28,37 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
     cd /tmp
     wget -q "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64-root.tar.xz" -O ubuntu24-rootfs.tar.xz
     
-    echo -e "${Y}▸ Extracting rootfs (skipping /dev)...${NC}"
+    echo -e "${Y}▸ Extracting rootfs...${NC}"
     cd "$ROOTFS_DIR"
-    tar --exclude='dev' -xJf /tmp/ubuntu24-rootfs.tar.xz || true
+    tar -xJf /tmp/ubuntu24-rootfs.tar.xz 2>/dev/null || true
     rm -f /tmp/ubuntu24-rootfs.tar.xz
     
+    # Fix permissions so _apt user can read keyring files inside container
+    chmod -R 755 "$ROOTFS_DIR/etc/apt" "$ROOTFS_DIR/usr/share/keyrings" 2>/dev/null || true
+
     mkdir -p "$ROOTFS_DIR/etc"
     rm -f "$ROOTFS_DIR/etc/resolv.conf"
     echo "nameserver 8.8.8.8" > "$ROOTFS_DIR/etc/resolv.conf"
     echo "nameserver 8.8.4.4" >> "$ROOTFS_DIR/etc/resolv.conf"
     
-    echo -e "${Y}▸ Bootstrapping GPG keys & packages inside Ubuntu 24...${NC}"
-    proot -0 -r "$ROOTFS_DIR" -b /dev -b /proc -b /sys /bin/bash -c '
-        if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-            sed -i "s/Signed-By:.*/Trusted: yes/g" /etc/apt/sources.list.d/ubuntu.sources
-        fi
-        apt-get update -qq
-        apt-get install -y -qq ubuntu-keyring ca-certificates 2>/dev/null || true
-        
-        if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-            sed -i "s/Trusted: yes/Signed-By: \/usr\/share\/keyrings\/ubuntu-archive-keyring.gpg/g" /etc/apt/sources.list.d/ubuntu.sources
-        fi
+    echo -e "${Y}▸ Bootstrapping packages inside Ubuntu 24...${NC}"
+    proot -0 -r "$ROOTFS_DIR" -b /proc -b /sys -w / /bin/bash -c '
+        # Allow unauthenticated apt during bootstrap to avoid GPG lockouts
+        echo "APT::Get::AllowUnauthenticated \"true\";" > /etc/apt/apt.conf.d/99allow-unauth
+        echo "Acquire::AllowInsecureRepositories \"true\";" >> /etc/apt/apt.conf.d/99allow-unauth
+        echo "Acquire::AllowDowngradeToInsecureRepositories \"true\";" >> /etc/apt/apt.conf.d/99allow-unauth
 
-        apt-get update -qq
-        apt-get install -y -qq curl wget vim nano htop tmux sudo openssh-client python3 2>/dev/null
+        chmod -R 755 /etc/apt/trusted.gpg.d /usr/share/keyrings 2>/dev/null || true
+
+        apt-get update -o Acquire::AllowInsecureRepositories=true -o Get::AllowUnauthenticated=true
+        apt-get install -y -qq ubuntu-keyring ca-certificates curl wget vim nano htop tmux sudo openssh-client python3
+        
+        # Remove bypass once keyring is populated
+        rm -f /etc/apt/apt.conf.d/99allow-unauth
         apt-get clean
     '
     
-    proot -0 -r "$ROOTFS_DIR" /bin/bash -c '
+    proot -0 -r "$ROOTFS_DIR" -w / /bin/bash -c '
         useradd -m -s /bin/bash dev 2>/dev/null || true
         echo "dev ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
     '
@@ -72,7 +75,7 @@ fi
 # ── Start Tmate with clean environment ──
 echo -e "${Y}▸ Starting Tmate (Ubuntu 24 session)...${NC}"
 
-PROOT_CMD="proot -0 -r $ROOTFS_DIR -b /dev -b /proc -b /sys -w /home/dev /bin/bash"
+PROOT_CMD="proot -0 -r $ROOTFS_DIR -b /proc -b /sys -w /home/dev /bin/bash --login"
 
 # Clean up stale locks
 unset TMUX
@@ -80,7 +83,7 @@ tmate -S /tmp/tmate.sock kill-server 2>/dev/null || true
 rm -f /tmp/tmate.sock
 
 # Launch session
-tmate -S /tmp/tmate.sock new-session -d -x 256x48 "$PROOT_CMD" 2>/dev/null || true
+tmate -S /tmp/tmate.sock new-session -d -x 256x48 "$PROOT_CMD"
 tmate -S /tmp/tmate.sock wait tmate-ready 2>/dev/null || true
 
 # Extract SSH and Web links
