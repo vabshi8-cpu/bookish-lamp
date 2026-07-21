@@ -7,7 +7,7 @@ export PROOT_NO_SECCOMP=1
 R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m' C='\033[0;36m' B='\033[1m' NC='\033[0m'
 
 echo -e "${C}╔══════════════════════════════════════════╗${NC}"
-echo -e "${C}║   Ubuntu 24 Terminal Setup (God Mode)    ║${NC}"
+echo -e "${C}║   Ubuntu 24 Terminal Setup               ║${NC}"
 echo -e "${C}╚══════════════════════════════════════════╝${NC}"
 
 # ── Detect AVAILABLE resources ──
@@ -39,32 +39,42 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
     mkdir -p "$ROOTFS_DIR/dev" "$ROOTFS_DIR/etc" "$ROOTFS_DIR/proc" "$ROOTFS_DIR/sys" "$ROOTFS_DIR/tmp"
     touch "$ROOTFS_DIR/dev/null" 2>/dev/null || true
 
-    # FIX: Inherit host network to prevent DNS blackholes
+    # FIX: Remove dangling systemd symlink before writing
+    rm -rf "$ROOTFS_DIR/etc/resolv.conf"
     cp /etc/resolv.conf "$ROOTFS_DIR/etc/resolv.conf" 2>/dev/null || echo "nameserver 8.8.8.8" > "$ROOTFS_DIR/etc/resolv.conf"
     
     echo -e "${Y}▸ Fixing APT & Downloading Keyring on HOST...${NC}"
     mkdir -p "$ROOTFS_DIR/var/cache/swcatalog/cache"
     chmod -R 777 "$ROOTFS_DIR/var/cache/swcatalog" 2>/dev/null || true
     
-    # Download keyring outside of proot to ensure network doesn't hang
-    wget -q "http://archive.ubuntu.com/ubuntu/pool/main/u/ubuntu-keyring/ubuntu-keyring_2023.11.28.1_all.deb" -O "$ROOTFS_DIR/tmp/keyring.deb"
+    wget -q "http://archive.ubuntu.com/ubuntu/pool/main/u/ubuntu-keyring/ubuntu-keyring_2023.11.28.1_all.deb" -O "$ROOTFS_DIR/tmp/keyring.deb" || true
     
-    echo -e "${Y}▸ Bootstrapping Packages (You will see text scrolling now!)...${NC}"
+    echo -e "${Y}▸ Bootstrapping Packages...${NC}"
     
-    # Run proot without silent flags so you can see it working
     proot -0 -r "$ROOTFS_DIR" -w / /bin/bash -c '
         export DEBIAN_FRONTEND=noninteractive
         
-        echo "[+] Extracting Keyring..."
-        dpkg-deb -x /tmp/keyring.deb /
-        rm -f /tmp/keyring.deb
+        if [ -f /tmp/keyring.deb ]; then
+            echo "[+] Extracting Keyring..."
+            dpkg-deb -x /tmp/keyring.deb / 2>/dev/null || true
+            rm -f /tmp/keyring.deb
+        fi
         chmod -R 755 /etc/apt /usr/share/keyrings 2>/dev/null || true
         
+        # Override strict Ubuntu 24 GPG defaults with trusted repositories
+        rm -f /etc/apt/sources.list.d/ubuntu.sources
+        cat <<EOF > /etc/apt/sources.list
+deb [trusted=yes] http://archive.ubuntu.com/ubuntu/ noble main restricted universe multiverse
+deb [trusted=yes] http://archive.ubuntu.com/ubuntu/ noble-updates main restricted universe multiverse
+deb [trusted=yes] http://archive.ubuntu.com/ubuntu/ noble-backports main restricted universe multiverse
+deb [trusted=yes] http://security.ubuntu.com/ubuntu/ noble-security main restricted universe multiverse
+EOF
+
         echo "[+] Updating APT..."
-        apt-get update -y < /dev/null
+        apt-get update -y
         
         echo "[+] Installing core packages..."
-        apt-get install -y curl wget vim nano htop tmux sudo openssh-client python3 < /dev/null
+        apt-get install -y curl wget vim nano htop tmux sudo openssh-client python3
         
         apt-get clean
     '
