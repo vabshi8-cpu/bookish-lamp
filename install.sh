@@ -37,7 +37,7 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
     echo -e "${Y}▸ Installing XFCE4 Desktop, VNC, and GUI utilities...${NC}"
     proot -0 -r "$ROOTFS_DIR" -w / /bin/bash -c '
         mkdir -p /etc/apt/apt.conf.d/
-        cat <<EOF > /etc/apt/apt.conf.d/99proot-fix
+        cat << "EOF" > /etc/apt/apt.conf.d/99proot-fix
 APT::Sandbox::User "root";
 Acquire::ForceIPv4 "true";
 Acquire::AllowInsecureRepositories "true";
@@ -45,7 +45,7 @@ Acquire::AllowDowngradeToInsecureRepositories "true";
 EOF
 
         rm -rf /etc/apt/sources.list.d/*
-        cat <<EOF > /etc/apt/sources.list
+        cat << "EOF" > /etc/apt/sources.list
 deb [trusted=yes allow-insecure=yes] http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
 deb [trusted=yes allow-insecure=yes] http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
 deb [trusted=yes allow-insecure=yes] http://archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse
@@ -110,11 +110,18 @@ done
 
 WEB_URL=$(grep -o 'https://[^[:space:]]*' /tmp/pinggy_gui.log | head -n 1 || echo "Failed to get tunnel")
 
+# Safely extract domain part to prevent parser errors
+if [ "$WEB_URL" != "Failed to get tunnel" ]; then
+    DOMAIN_PART=$(echo "$WEB_URL" | awk -F/ '{print $3}')
+else
+    DOMAIN_PART="localhost"
+fi
+
 echo ""
 echo -e "${G}╔══════════════════════════════════════════════════════════╗${NC}"
 echo -e "${G}║  ${B}Ubuntu 24.04 GUI Desktop Ready! Open in your browser:${NC}"
 echo -e "${G}║${NC}"
-echo -e "${G}║  URL:      ${C}${WEB_URL}/vnc.html?host=$(echo $WEB_URL | awk -F/ '{print $3}')&port=443&password=ubuntu${NC}"
+echo -e "${G}║  URL:      ${C}${WEB_URL}/vnc.html?host=${DOMAIN_PART}&port=443&password=ubuntu${NC}"
 echo -e "${G}║${NC}  Password: ${C}ubuntu${NC}"
 echo -e "${G}║${NC}"
 echo -e "${G}╚══════════════════════════════════════════════════════════╝${NC}"
