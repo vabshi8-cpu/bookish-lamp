@@ -4,7 +4,7 @@ set -euo pipefail
 R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m' C='\033[0;36m' B='\033[1m' NC='\033[0m'
 
 echo -e "${C}╔══════════════════════════════════════════╗${NC}"
-echo -e "${C}║   ${B}Ubuntu 24 Terminal Setup${C}               ║${NC}"
+echo -e "${C}║   Ubuntu 24 Terminal Setup               ║${NC}"
 echo -e "${C}╚══════════════════════════════════════════╝${NC}"
 
 # ── Detect AVAILABLE resources (no `free` command needed) ──
@@ -33,6 +33,7 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
     tar --exclude='dev' -xJf /tmp/ubuntu24-rootfs.tar.xz || true
     rm -f /tmp/ubuntu24-rootfs.tar.xz
     
+    mkdir -p "$ROOTFS_DIR/etc"
     echo "nameserver 8.8.8.8" > "$ROOTFS_DIR/etc/resolv.conf"
     echo "nameserver 8.8.4.4" >> "$ROOTFS_DIR/etc/resolv.conf"
     
