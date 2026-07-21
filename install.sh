@@ -38,7 +38,7 @@ deb [trusted=yes] http://security.ubuntu.com/ubuntu noble-security main restrict
 AEOF
 
 apt-get update -y -qq || true
-apt-get install -y -qq xfce4 xfce4-goodies tigervnc-standalone-server websockify git sudo curl wget nano 2>/dev/null || true
+apt-get install -y -qq xfce4 xfce4-goodies tigervnc-standalone-server websockify git sudo curl wget nano procps 2>/dev/null || true
 EOF
 
     chmod +x /tmp/setup.sh
@@ -51,9 +51,9 @@ EOF
     touch .setup_done
 fi
 
-pkill -f Xvnc || true
-pkill -f websockify || true
-pkill -f free.pinggy.io || true
+kill $(pgrep -f Xvnc) 2>/dev/null || true
+kill $(pgrep -f websockify) 2>/dev/null || true
+kill $(pgrep -f free.pinggy.io) 2>/dev/null || true
 rm -f /tmp/pinggy_gui.log
 
 mkdir -p "$ROOTFS_DIR/root/.vnc"
@@ -78,7 +78,7 @@ sleep 6
 
 WEB_URL=""
 if [ -f /tmp/pinggy_gui.log ]; then
-    WEB_URL=$(grep -o 'https://[^[:space:]]*' /tmp/pinggy_gui.log | head -n 1)
+    WEB_URL=$(grep -o 'https://[^[:space:]]*pinggy\.link' /tmp/pinggy_gui.log | head -n 1)
 fi
 
 [ -z "$WEB_URL" ] && WEB_URL="https://placeholder-url-check-log"
