@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eo pipefail
 
 # ── 1. KERNEL & ENVIRONMENT FIXES ──
 export PROOT_NO_SECCOMP=1
 export DEBIAN_FRONTEND=noninteractive
 
-# Color Palette (R is now correctly defined!)
+# Color Palette
 C='\033[0;36m' G='\033[0;32m' Y='\033[1;33m' R='\033[0;31m' B='\033[1m' NC='\033[0m'
 
 echo -e "${C}╔════════════════════════════════════════════════════════╗${NC}"
