@@ -36,7 +36,6 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
 
     echo -e "${Y}▸ Installing XFCE4 Desktop, VNC, and GUI utilities...${NC}"
     
-    # Write setup script externally to avoid string parsing/heredoc errors
     cat << 'EOF' > "$ROOTFS_DIR/tmp/guest_setup.sh"
 #!/bin/bash
 export DEBIAN_FRONTEND=noninteractive
@@ -118,8 +117,9 @@ done
 
 WEB_URL=$(grep -o 'https://[^[:space:]]*' /tmp/pinggy_gui.log | head -n 1 || echo "Failed to get tunnel")
 
+# Safely extract domain part using cut (immune to awk parser errors)
 if [ "$WEB_URL" != "Failed to get tunnel" ]; then
-    DOMAIN_PART=$(echo "$WEB_URL" | awk -F/ '{print $3}')
+    DOMAIN_PART=$(echo "$WEB_URL" | cut -d'/' -f3)
 else
     DOMAIN_PART="localhost"
 fi
