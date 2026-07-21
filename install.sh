@@ -82,7 +82,7 @@ echo "Waiting for tunnel URL..."
 WEB_URL=""
 for i in {1..20}; do
     if [ -f /tmp/tunnel.log ]; then
-        WEB_URL=$(grep -o 'https://[^[:space:]]*lhr\.life' /tmp/tunnel.log | head -n 1)
+        WEB_URL=$(grep -o 'https://[^[:space:]]*localhost\.run' /tmp/tunnel.log | head -n 1)
         if [ -n "$WEB_URL" ]; then
             break
         fi
