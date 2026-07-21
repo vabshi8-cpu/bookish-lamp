@@ -38,19 +38,24 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
     echo "nameserver 8.8.8.8" > "$ROOTFS_DIR/etc/resolv.conf"
     echo "nameserver 8.8.4.4" >> "$ROOTFS_DIR/etc/resolv.conf"
     
-    echo -e "${Y}▸ Importing GPG keys & installing packages inside Ubuntu 24...${NC}"
-    proot -0 -w / -b /dev -b /proc -b /sys -r "$ROOTFS_DIR" /bin/bash -c '
-        mkdir -p /usr/share/keyrings /etc/apt/trusted.gpg.d
-        # Import missing Ubuntu Archive Keys directly into apt trusted keyring
-        curl -sL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x871920D1991BC93C" | gpg --batch --yes --dearmor -o /etc/apt/trusted.gpg.d/ubuntu-archive.gpg 2>/dev/null || true
-        curl -sL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x871920D1991BC93C" | gpg --batch --yes --dearmor -o /usr/share/keyrings/ubuntu-archive-keyring.gpg 2>/dev/null || true
-        
+    echo -e "${Y}▸ Bootstrapping GPG keys & packages inside Ubuntu 24...${NC}"
+    proot -0 -r "$ROOTFS_DIR" -b /dev -b /proc -b /sys /bin/bash -c '
+        if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            sed -i "s/Signed-By:.*/Trusted: yes/g" /etc/apt/sources.list.d/ubuntu.sources
+        fi
         apt-get update -qq
-        apt-get install -y -qq curl wget vim nano htop tmux sudo ca-certificates openssh-client python3 2>/dev/null
+        apt-get install -y -qq ubuntu-keyring ca-certificates 2>/dev/null || true
+        
+        if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            sed -i "s/Trusted: yes/Signed-By: \/usr\/share\/keyrings\/ubuntu-archive-keyring.gpg/g" /etc/apt/sources.list.d/ubuntu.sources
+        fi
+
+        apt-get update -qq
+        apt-get install -y -qq curl wget vim nano htop tmux sudo openssh-client python3 2>/dev/null
         apt-get clean
     '
     
-    proot -0 -w / -b /dev -b /proc -b /sys -r "$ROOTFS_DIR" /bin/bash -c '
+    proot -0 -r "$ROOTFS_DIR" /bin/bash -c '
         useradd -m -s /bin/bash dev 2>/dev/null || true
         echo "dev ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
     '
@@ -64,19 +69,21 @@ else
     echo -e "${G}▸ Ubuntu 24 rootfs already exists, skipping download.${NC}"
 fi
 
-# ── Start Tmate with proot as shell ──
+# ── Start Tmate with clean environment ──
 echo -e "${Y}▸ Starting Tmate (Ubuntu 24 session)...${NC}"
 
-PROOT_CMD="proot -0 -w /home/dev -b /dev -b /proc -b /sys -r $ROOTFS_DIR /bin/bash --login"
+PROOT_CMD="proot -0 -r $ROOTFS_DIR -b /dev -b /proc -b /sys -w /home/dev /bin/bash"
 
-# Clear existing tmate session/locks and remove TMUX variable override
+# Clean up stale locks
 unset TMUX
 tmate -S /tmp/tmate.sock kill-server 2>/dev/null || true
 rm -f /tmp/tmate.sock
 
+# Launch session
 tmate -S /tmp/tmate.sock new-session -d -x 256x48 "$PROOT_CMD" 2>/dev/null || true
 tmate -S /tmp/tmate.sock wait tmate-ready 2>/dev/null || true
 
+# Extract SSH and Web links
 TMATE_SSH=""
 for i in {1..15}; do
     TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null || echo "")
@@ -98,4 +105,4 @@ echo ""
 
 # Drop locally into rootfs shell
 echo -e "${Y}▸ Dropping into Ubuntu 24 shell locally...${NC}"
-$PROOT_CMD
+exec $PROOT_CMD
