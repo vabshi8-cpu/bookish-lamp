@@ -4,11 +4,17 @@ set +e
 export PROOT_NO_SECCOMP=1
 export DEBIAN_FRONTEND=noninteractive
 
-echo "=== Ubuntu 24.04 GUI Setup ==="
+echo "=== Ubuntu 24.04 GUI Setup with Cloudflare Tunnel ==="
 
-# Install host-side dependencies required for networking & proxying
+# Install host-side dependencies including cloudflared & websockify
 apt-get update -y -qq || true
-apt-get install -y -qq websockify openssh-client wget procps git 2>/dev/null || true
+apt-get install -y -qq websockify wget procps git curl 2>/dev/null || true
+
+if ! command -v cloudflared &> /dev/null; then
+    echo "Installing cloudflared..."
+    curl -L --output /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+    chmod +x /usr/local/bin/cloudflared
+fi
 
 ROOTFS_DIR="$HOME/ubuntu24"
 mkdir -p "$ROOTFS_DIR"
@@ -57,8 +63,8 @@ fi
 
 kill $(pgrep -f Xvnc) 2>/dev/null || true
 kill $(pgrep -f websockify) 2>/dev/null || true
-kill $(pgrep -f free.pinggy.io) 2>/dev/null || true
-rm -f /tmp/pinggy_gui.log
+kill $(pgrep -f cloudflared) 2>/dev/null || true
+rm -f /tmp/cloudflare.log
 
 mkdir -p "$ROOTFS_DIR/root/.vnc"
 echo '#!/bin/bash' > "$ROOTFS_DIR/root/.vnc/xstartup"
@@ -75,14 +81,14 @@ proot -0 -r "$ROOTFS_DIR" -b /dev -b /proc -b /sys vncserver :1 -geometry 1280x7
 echo "Starting websockify on host..."
 websockify --web "$ROOTFS_DIR/usr/share/novnc/" 6080 localhost:5901 > /dev/null 2>&1 &
 
-echo "Starting tunnel..."
-ssh -o StrictHostKeyChecking=no -p 443 -R0:localhost:6080 free.pinggy.io > /tmp/pinggy_gui.log 2>&1 &
+echo "Starting Cloudflare tunnel..."
+cloudflared tunnel --url http://localhost:6080 > /tmp/cloudflare.log 2>&1 &
 
-echo "Waiting for tunnel URL..."
+echo "Waiting for Cloudflare URL..."
 WEB_URL=""
-for i in {1..15}; do
-    if [ -f /tmp/pinggy_gui.log ]; then
-        WEB_URL=$(grep -o 'https://[^[:space:]]*pinggy[^[:space:]]*' /tmp/pinggy_gui.log | head -n 1)
+for i in {1..20}; do
+    if [ -f /tmp/cloudflare.log ]; then
+        WEB_URL=$(grep -o 'https://[^[:space:]]*trycloudflare\.com' /tmp/cloudflare.log | head -n 1)
         if [ -n "$WEB_URL" ]; then
             break
         fi
@@ -95,10 +101,23 @@ DOMAIN_PART=$(echo "$WEB_URL" | cut -d'/' -f3)
 
 echo ""
 echo "=========================================================="
-echo " Ubuntu 24.04 GUI Desktop Ready!"
+echo " Ubuntu 24.04 GUI Desktop Ready (24/7 Cloudflare Active)!"
 echo " URL:      $WEB_URL/vnc.html?host=$DOMAIN_PART&port=443&password=ubuntu"
 echo " Password: ubuntu"
 echo "=========================================================="
 echo ""
+echo "Session is locked in 24/7 active mode. Do not close this terminal."
 
-exec proot -0 -r "$ROOTFS_DIR" -b /dev -b /proc -b /sys -w /root /bin/bash -l
+# 24/7 Uptime Guardian Loop: Auto-restarts any service if it drops
+while true; do
+    if ! pgrep -f Xvnc > /dev/null; then
+        proot -0 -r "$ROOTFS_DIR" -b /dev -b /proc -b /sys vncserver :1 -geometry 1280x720 -depth 24 2>/dev/null || true
+    fi
+    if ! pgrep -f websockify > /dev/null; then
+        websockify --web "$ROOTFS_DIR/usr/share/novnc/" 6080 localhost:5901 > /dev/null 2>&1 &
+    fi
+    if ! pgrep -f cloudflared > /dev/null; then
+        cloudflared tunnel --url http://localhost:6080 > /tmp/cloudflare.log 2>&1 &
+    fi
+    sleep 30
+done
