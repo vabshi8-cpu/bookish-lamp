@@ -4,28 +4,11 @@ set +e
 export PROOT_NO_SECCOMP=1
 export DEBIAN_FRONTEND=noninteractive
 
-echo "=== Ubuntu 24.04 GUI Setup with Cloudflare Tunnel ==="
+echo "=== Ubuntu 24.04 GUI Setup with localhost.run Tunnel ==="
 
 # Install host-side dependencies
 apt-get update -y -qq || true
-apt-get install -y -qq websockify wget procps git curl 2>/dev/null || true
-
-# Dynamic Architecture Detection for Cloudflared (Fixes Segmentation Fault)
-if ! command -v cloudflared &> /dev/null; then
-    echo "Detecting system architecture..."
-    ARCH=$(uname -m)
-    echo "Architecture detected: $ARCH"
-    
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-        CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
-    else
-        CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
-    fi
-
-    echo "Downloading cloudflared for $ARCH..."
-    curl -L --output /usr/local/bin/cloudflared "$CF_URL"
-    chmod +x /usr/local/bin/cloudflared
-fi
+apt-get install -y -qq websockify wget procps git curl openssh-client 2>/dev/null || true
 
 ROOTFS_DIR="$HOME/ubuntu24"
 mkdir -p "$ROOTFS_DIR"
@@ -74,8 +57,8 @@ fi
 
 kill $(pgrep -f Xvnc) 2>/dev/null || true
 kill $(pgrep -f websockify) 2>/dev/null || true
-kill $(pgrep -f cloudflared) 2>/dev/null || true
-rm -f /tmp/cloudflare.log
+kill $(pgrep -f localhost.run) 2>/dev/null || true
+rm -f /tmp/tunnel.log
 
 mkdir -p "$ROOTFS_DIR/root/.vnc"
 echo '#!/bin/bash' > "$ROOTFS_DIR/root/.vnc/xstartup"
@@ -92,14 +75,14 @@ proot -0 -r "$ROOTFS_DIR" -b /dev -b /proc -b /sys vncserver :1 -geometry 1280x7
 echo "Starting websockify on host..."
 websockify --web "$ROOTFS_DIR/usr/share/novnc/" 6080 localhost:5901 > /dev/null 2>&1 &
 
-echo "Starting Cloudflare tunnel..."
-cloudflared tunnel --url http://localhost:6080 > /tmp/cloudflare.log 2>&1 &
+echo "Starting tunnel..."
+ssh -o StrictHostKeyChecking=no -R 80:localhost:6080 localhost.run > /tmp/tunnel.log 2>&1 &
 
-echo "Waiting for Cloudflare URL..."
+echo "Waiting for tunnel URL..."
 WEB_URL=""
 for i in {1..20}; do
-    if [ -f /tmp/cloudflare.log ]; then
-        WEB_URL=$(grep -o 'https://[^[:space:]]*trycloudflare\.com' /tmp/cloudflare.log | head -n 1)
+    if [ -f /tmp/tunnel.log ]; then
+        WEB_URL=$(grep -o 'https://[^[:space:]]*lhr\.life' /tmp/tunnel.log | head -n 1)
         if [ -n "$WEB_URL" ]; then
             break
         fi
@@ -112,7 +95,7 @@ DOMAIN_PART=$(echo "$WEB_URL" | cut -d'/' -f3)
 
 echo ""
 echo "=========================================================="
-echo " Ubuntu 24.04 GUI Desktop Ready (24/7 Cloudflare Active)!"
+echo " Ubuntu 24.04 GUI Desktop Ready (24/7 Tunnel Active)!"
 echo " URL:      $WEB_URL/vnc.html?host=$DOMAIN_PART&port=443&password=ubuntu"
 echo " Password: ubuntu"
 echo "=========================================================="
@@ -127,8 +110,8 @@ while true; do
     if ! pgrep -f websockify > /dev/null; then
         websockify --web "$ROOTFS_DIR/usr/share/novnc/" 6080 localhost:5901 > /dev/null 2>&1 &
     fi
-    if ! pgrep -f cloudflared > /dev/null; then
-        cloudflared tunnel --url http://localhost:6080 > /tmp/cloudflare.log 2>&1 &
+    if ! pgrep -f localhost.run > /dev/null; then
+        ssh -o StrictHostKeyChecking=no -R 80:localhost:6080 localhost.run > /tmp/tunnel.log 2>&1 &
     fi
     sleep 30
 done
