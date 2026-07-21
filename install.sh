@@ -14,7 +14,7 @@ AVAIL_DISK_GB=$(df -BG / 2>/dev/null | tail -1 | awk '{print $4}' | tr -d 'G' ||
 
 echo -e "${G}▸ Available RAM:${NC} ${AVAIL_RAM_MB}MB  ${G}▸ CPU Cores:${NC} ${CPU_CORES}  ${G}▸ Available Disk:${NC} ${AVAIL_DISK_GB}GB"
 
-# ── Install deps ──
+# ── Install deps on Host ──
 echo -e "${Y}▸ Installing dependencies...${NC}"
 apt-get update -qq
 apt-get install -y -qq proot wget curl tmate sudo vim nano htop tmux 2>/dev/null || true
@@ -38,10 +38,13 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
     echo "nameserver 8.8.8.8" > "$ROOTFS_DIR/etc/resolv.conf"
     echo "nameserver 8.8.4.4" >> "$ROOTFS_DIR/etc/resolv.conf"
     
-    echo -e "${Y}▸ Installing packages inside Ubuntu 24...${NC}"
+    echo -e "${Y}▸ Importing GPG keys & installing packages inside Ubuntu 24...${NC}"
     proot -0 -w / -b /dev -b /proc -b /sys -r "$ROOTFS_DIR" /bin/bash -c '
-        mkdir -p /usr/share/keyrings
-        curl -sL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x871920D1991BC93C" | gpg --dearmor -o /usr/share/keyrings/ubuntu-archive-keyring.gpg 2>/dev/null || true
+        mkdir -p /usr/share/keyrings /etc/apt/trusted.gpg.d
+        # Import missing Ubuntu Archive Keys directly into apt trusted keyring
+        curl -sL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x871920D1991BC93C" | gpg --batch --yes --dearmor -o /etc/apt/trusted.gpg.d/ubuntu-archive.gpg 2>/dev/null || true
+        curl -sL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x871920D1991BC93C" | gpg --batch --yes --dearmor -o /usr/share/keyrings/ubuntu-archive-keyring.gpg 2>/dev/null || true
+        
         apt-get update -qq
         apt-get install -y -qq curl wget vim nano htop tmux sudo ca-certificates openssh-client python3 2>/dev/null
         apt-get clean
@@ -61,21 +64,19 @@ else
     echo -e "${G}▸ Ubuntu 24 rootfs already exists, skipping download.${NC}"
 fi
 
-# ── Start Tmate with proot as the shell ──
+# ── Start Tmate with proot as shell ──
 echo -e "${Y}▸ Starting Tmate (Ubuntu 24 session)...${NC}"
 
-# Define command with root fallback binding
 PROOT_CMD="proot -0 -w /home/dev -b /dev -b /proc -b /sys -r $ROOTFS_DIR /bin/bash --login"
 
-# Clean up stale sockets/processes completely
+# Clear existing tmate session/locks and remove TMUX variable override
+unset TMUX
 tmate -S /tmp/tmate.sock kill-server 2>/dev/null || true
 rm -f /tmp/tmate.sock
 
-# Launch new tmate session
-tmate -S /tmp/tmate.sock new-session -d -x 256x48 "$PROOT_CMD"
+tmate -S /tmp/tmate.sock new-session -d -x 256x48 "$PROOT_CMD" 2>/dev/null || true
 tmate -S /tmp/tmate.sock wait tmate-ready 2>/dev/null || true
 
-# Wait for SSH URL to generate
 TMATE_SSH=""
 for i in {1..15}; do
     TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null || echo "")
