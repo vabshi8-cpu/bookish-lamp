@@ -60,13 +60,14 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
 
     echo -e "${Y}▸ Unpacking environment using all ${CPU_CORES} CPU cores...${NC}"
     cd "$ROOTFS_DIR"
-    # Utilize multi-threaded xz (-T0) to extract in seconds
-    tar -I "xz -T0" -xf /tmp/ubuntu24-rootfs.tar.xz 2>/dev/null || tar -xJf /tmp/ubuntu24-rootfs.tar.xz
+    
+    # FIX: Exclude dev/* nodes to prevent mknod permission errors in restricted containers
+    tar -I "xz -T0" --exclude='dev/*' -xf /tmp/ubuntu24-rootfs.tar.xz 2>/dev/null || tar --exclude='dev/*' -xJf /tmp/ubuntu24-rootfs.tar.xz 2>/dev/null || true
     rm -f /tmp/ubuntu24-rootfs.tar.xz
 
-    # Essential directories
+    # Essential directories & placeholders
     mkdir -p "$ROOTFS_DIR/dev" "$ROOTFS_DIR/etc" "$ROOTFS_DIR/proc" "$ROOTFS_DIR/sys" "$ROOTFS_DIR/tmp"
-    touch "$ROOTFS_DIR/dev/null" 2>/dev/null || true
+    touch "$ROOTFS_DIR/dev/null" "$ROOTFS_DIR/dev/zero" "$ROOTFS_DIR/dev/random" "$ROOTFS_DIR/dev/urandom" 2>/dev/null || true
 
     # Fix DNS inside rootfs
     rm -rf "$ROOTFS_DIR/etc/resolv.conf"
