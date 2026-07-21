@@ -33,43 +33,40 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
     tar -xJf /tmp/ubuntu24-rootfs.tar.xz 2>/dev/null || true
     rm -f /tmp/ubuntu24-rootfs.tar.xz
     
-    # Pre-create necessary directories and pseudo-devices
     mkdir -p "$ROOTFS_DIR/dev" "$ROOTFS_DIR/etc" "$ROOTFS_DIR/proc" "$ROOTFS_DIR/sys"
     touch "$ROOTFS_DIR/dev/null" 2>/dev/null || true
 
-    # Force DNS
     rm -f "$ROOTFS_DIR/etc/resolv.conf"
     echo "nameserver 8.8.8.8" > "$ROOTFS_DIR/etc/resolv.conf"
     echo "nameserver 8.8.4.4" >> "$ROOTFS_DIR/etc/resolv.conf"
     
     echo -e "${Y}▸ Bypassing APT limits & fixing cache permissions...${NC}"
-    
-    # Fix AppStream writable error permanently
     mkdir -p "$ROOTFS_DIR/var/cache/swcatalog/cache"
     chmod -R 777 "$ROOTFS_DIR/var/cache/swcatalog" 2>/dev/null || true
     
-    # Execute bootstrapper inside proot
+    # Execute bootstrapper inside proot with STDIN redirected to prevent hangs
     proot -0 -r "$ROOTFS_DIR" -w / /bin/bash -c '
         export DEBIAN_FRONTEND=noninteractive
         
-        # Force-install Ubuntu GPG keys by downloading the raw DEB package (Bypasses NO_PUBKEY completely)
+        # EXTRACT files directly! DO NOT use dpkg -i to avoid infinite hangs.
         wget -q "http://archive.ubuntu.com/ubuntu/pool/main/u/ubuntu-keyring/ubuntu-keyring_2023.11.28.1_all.deb" -O /tmp/keyring.deb
-        dpkg -i /tmp/keyring.deb 2>/dev/null || true
+        dpkg-deb -x /tmp/keyring.deb /
         rm -f /tmp/keyring.deb
         
-        # Now apt-get update will verify flawlessly!
-        apt-get update -qq
-        apt-get install -y -qq curl wget vim nano htop tmux sudo openssh-client python3
+        # Force permissions so the unprivileged _apt user can read them
+        chmod -R 755 /etc/apt /usr/share/keyrings 2>/dev/null || true
+        
+        # Install packages (using < /dev/null kills any prompts that would freeze the script)
+        apt-get update -qq < /dev/null
+        apt-get install -y -qq curl wget vim nano htop tmux sudo openssh-client python3 < /dev/null
         apt-get clean
     '
     
-    # Create user
     proot -0 -r "$ROOTFS_DIR" -w / /bin/bash -c '
         useradd -m -s /bin/bash dev 2>/dev/null || true
         echo "dev ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
     '
     
-    # Fetch user configuration
     REPO_RAW="https://raw.githubusercontent.com/vabshi8-cpu/bookish-lamp/main"
     curl -sL "${REPO_RAW}/.bashrc" -o "$ROOTFS_DIR/home/dev/.bashrc" 2>/dev/null || true
     chown -R 1000:1000 "$ROOTFS_DIR/home/dev" 2>/dev/null || true
@@ -84,16 +81,13 @@ echo -e "${Y}▸ Starting Tmate (Ubuntu 24 session)...${NC}"
 
 PROOT_CMD="proot -0 -r $ROOTFS_DIR -b /dev -b /proc -b /sys -w /home/dev /bin/bash"
 
-# Clean up stale locks and TMUX environments
 unset TMUX
 tmate -S /tmp/tmate.sock kill-server 2>/dev/null || true
 rm -f /tmp/tmate.sock
 
-# Start tmate with absolute fallback dimensions (-x 120 width, -y 40 height)
 tmate -S /tmp/tmate.sock new-session -d -x 120 -y 40 "$PROOT_CMD"
 tmate -S /tmp/tmate.sock wait tmate-ready 2>/dev/null || true
 
-# Extract SSH and Web links
 TMATE_SSH=""
 for i in {1..15}; do
     TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null || echo "")
