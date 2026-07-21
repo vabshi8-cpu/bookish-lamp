@@ -5,7 +5,8 @@ set -euo pipefail
 export PROOT_NO_SECCOMP=1
 export DEBIAN_FRONTEND=noninteractive
 
-C='\033[0;36m' G='\033[0;32m' Y='\033[1;33m' B='\033[1m' NC='\033[0m'
+# Color Palette (R is now correctly defined!)
+C='\033[0;36m' G='\033[0;32m' Y='\033[1;33m' R='\033[0;31m' B='\033[1m' NC='\033[0m'
 
 echo -e "${C}╔════════════════════════════════════════════════════════╗${NC}"
 echo -e "${C}║     Ubuntu 24.04 LTS Setup (Turbo God Mode)           ║${NC}"
@@ -61,15 +62,12 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
     echo -e "${Y}▸ Unpacking environment using all ${CPU_CORES} CPU cores...${NC}"
     cd "$ROOTFS_DIR"
     
-    # FIX: Exclude dev/* nodes to prevent mknod permission errors in restricted containers
     tar -I "xz -T0" --exclude='dev/*' -xf /tmp/ubuntu24-rootfs.tar.xz 2>/dev/null || tar --exclude='dev/*' -xJf /tmp/ubuntu24-rootfs.tar.xz 2>/dev/null || true
     rm -f /tmp/ubuntu24-rootfs.tar.xz
 
-    # Essential directories & placeholders
     mkdir -p "$ROOTFS_DIR/dev" "$ROOTFS_DIR/etc" "$ROOTFS_DIR/proc" "$ROOTFS_DIR/sys" "$ROOTFS_DIR/tmp"
     touch "$ROOTFS_DIR/dev/null" "$ROOTFS_DIR/dev/zero" "$ROOTFS_DIR/dev/random" "$ROOTFS_DIR/dev/urandom" 2>/dev/null || true
 
-    # Fix DNS inside rootfs
     rm -rf "$ROOTFS_DIR/etc/resolv.conf"
     if [ -f /etc/resolv.conf ]; then
         cp /etc/resolv.conf "$ROOTFS_DIR/etc/resolv.conf"
@@ -77,7 +75,6 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
         echo "nameserver 8.8.8.8" > "$ROOTFS_DIR/etc/resolv.conf"
     fi
 
-    # Configure APT configs & non-root user in a single fast PRoot execution
     echo -e "${Y}▸ Applying rootfs patches...${NC}"
     proot -0 -r "$ROOTFS_DIR" -w / /bin/bash -c '
         mkdir -p /etc/apt/apt.conf.d/
@@ -119,11 +116,9 @@ killall -9 tmate 2>/dev/null || true
 tmate -S /tmp/tmate.sock kill-server 2>/dev/null || true
 rm -f /tmp/tmate.sock
 
-# Start tmate in background with logging enabled
 tmate -S /tmp/tmate.sock new-session -d -x 120 -y 40 "$PROOT_CMD" 2>/dev/null || true
 
 echo -e "${Y}▸ Waiting for Tmate connection (15s timeout)...${NC}"
-# Give it a realistic 15 seconds to negotiate keys and connect
 for i in {1..15}; do
     if tmate -S /tmp/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null | grep -q "ssh"; then
         break
@@ -134,7 +129,6 @@ done
 TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null || echo "")
 TMATE_WEB=$(tmate -S /tmp/tmate.sock display -p "#{tmate_web}" 2>/dev/null || echo "")
 
-# If links are still empty, print the debug log to see why it failed
 if [ -z "$TMATE_SSH" ]; then
     echo -e "${R}▸ Tmate failed to connect. Debug log:${NC}"
     tmate -S /tmp/tmate.sock display -p "#{tmate_message}" 2>/dev/null || echo "No message available"
