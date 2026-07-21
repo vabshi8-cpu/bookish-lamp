@@ -4,10 +4,10 @@ set -euo pipefail
 R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m' C='\033[0;36m' B='\033[1m' NC='\033[0m'
 
 echo -e "${C}╔══════════════════════════════════════════╗${NC}"
-echo -e "${C}║   COOKIES FOR EVERYONE YIPEEE IM SI      ║${NC}"
+echo -e "${C}║   Ubuntu 24 Terminal Setup               ║${NC}"
 echo -e "${C}╚══════════════════════════════════════════╝${NC}"
 
-# ── Detect AVAILABLE resources (no `free` command needed) ──
+# ── Detect AVAILABLE resources ──
 AVAIL_RAM_MB=$(awk '/MemAvailable/{printf "%.0f", $2/1024}' /proc/meminfo 2>/dev/null || echo "N/A")
 CPU_CORES=$(nproc 2>/dev/null || echo "N/A")
 AVAIL_DISK_GB=$(df -BG / 2>/dev/null | tail -1 | awk '{print $4}' | tr -d 'G' || echo "N/A")
@@ -34,8 +34,6 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
     rm -f /tmp/ubuntu24-rootfs.tar.xz
     
     mkdir -p "$ROOTFS_DIR/etc"
-    
-    # Remove existing symlink to avoid broken target path errors
     rm -f "$ROOTFS_DIR/etc/resolv.conf"
     echo "nameserver 8.8.8.8" > "$ROOTFS_DIR/etc/resolv.conf"
     echo "nameserver 8.8.4.4" >> "$ROOTFS_DIR/etc/resolv.conf"
@@ -50,7 +48,7 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
     '
     
     proot -0 -w / -b /dev -b /proc -b /sys -r "$ROOTFS_DIR" /bin/bash -c '
-        useradd -m -s /bin/bash dev
+        useradd -m -s /bin/bash dev 2>/dev/null || true
         echo "dev ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
     '
     
@@ -66,18 +64,21 @@ fi
 # ── Start Tmate with proot as the shell ──
 echo -e "${Y}▸ Starting Tmate (Ubuntu 24 session)...${NC}"
 
+# Define command with root fallback binding
 PROOT_CMD="proot -0 -w /home/dev -b /dev -b /proc -b /sys -r $ROOTFS_DIR /bin/bash --login"
 
-# Kill old session if running
+# Clean up stale sockets/processes completely
 tmate -S /tmp/tmate.sock kill-server 2>/dev/null || true
+rm -f /tmp/tmate.sock
 
-tmate -S /tmp/tmate.sock new-session -d -x 256x48 "$PROOT_CMD" 2>/dev/null || true
+# Launch new tmate session
+tmate -S /tmp/tmate.sock new-session -d -x 256x48 "$PROOT_CMD"
 tmate -S /tmp/tmate.sock wait tmate-ready 2>/dev/null || true
 
-# Wait for SSH URL to generate (key exchange can take a few seconds)
+# Wait for SSH URL to generate
 TMATE_SSH=""
 for i in {1..15}; do
-    TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null)
+    TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p "#{tmate_ssh}" 2>/dev/null || echo "")
     if [[ "$TMATE_SSH" == *"ssh"* ]]; then
         break
     fi
@@ -94,6 +95,6 @@ echo -e "${G}║${NC}  Web:  ${C}${TMATE_WEB}${NC}"
 echo -e "${G}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# ── Drop into Ubuntu 24 on cloud terminal too ──
+# Drop locally into rootfs shell
 echo -e "${Y}▸ Dropping into Ubuntu 24 shell locally...${NC}"
-exec $PROOT_CMD
+$PROOT_CMD
