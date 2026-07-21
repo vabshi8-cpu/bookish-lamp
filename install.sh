@@ -14,12 +14,12 @@ AVAIL_DISK_GB=$(df -BG / 2>/dev/null | tail -1 | awk '{print $4}' | tr -d 'G' ||
 
 echo -e "${G}▸ Available RAM:${NC} ${AVAIL_RAM_MB}MB  ${G}▸ CPU Cores:${NC} ${CPU_CORES}  ${G}▸ Available Disk:${NC} ${AVAIL_DISK_GB}GB"
 
-# ── Install deps on Host ──
-echo -e "${Y}▸ Installing dependencies...${NC}"
-apt-get update -qq
+# ── Install host dependencies ──
+echo -e "${Y}▸ Installing host dependencies...${NC}"
+apt-get update -qq || true
 apt-get install -y -qq proot wget curl tmate sudo vim nano htop tmux 2>/dev/null || true
 
-# ── Download Ubuntu 24.04 rootfs ──
+# ── Download and Configure Ubuntu 24.04 ──
 ROOTFS_DIR="$HOME/ubuntu24"
 mkdir -p "$ROOTFS_DIR"
 
@@ -33,57 +33,64 @@ if [ ! -f "$ROOTFS_DIR/.setup_done" ]; then
     tar -xJf /tmp/ubuntu24-rootfs.tar.xz 2>/dev/null || true
     rm -f /tmp/ubuntu24-rootfs.tar.xz
     
-    # Fix permissions so _apt user can read keyring files inside container
-    chmod -R 755 "$ROOTFS_DIR/etc/apt" "$ROOTFS_DIR/usr/share/keyrings" 2>/dev/null || true
+    # Pre-create necessary directories and pseudo-devices
+    mkdir -p "$ROOTFS_DIR/dev" "$ROOTFS_DIR/etc" "$ROOTFS_DIR/proc" "$ROOTFS_DIR/sys"
+    touch "$ROOTFS_DIR/dev/null" 2>/dev/null || true
 
-    mkdir -p "$ROOTFS_DIR/etc"
+    # Force DNS
     rm -f "$ROOTFS_DIR/etc/resolv.conf"
     echo "nameserver 8.8.8.8" > "$ROOTFS_DIR/etc/resolv.conf"
     echo "nameserver 8.8.4.4" >> "$ROOTFS_DIR/etc/resolv.conf"
     
-    echo -e "${Y}▸ Bootstrapping packages inside Ubuntu 24...${NC}"
-    proot -0 -r "$ROOTFS_DIR" -b /proc -b /sys -w / /bin/bash -c '
-        # Allow unauthenticated apt during bootstrap to avoid GPG lockouts
-        echo "APT::Get::AllowUnauthenticated \"true\";" > /etc/apt/apt.conf.d/99allow-unauth
-        echo "Acquire::AllowInsecureRepositories \"true\";" >> /etc/apt/apt.conf.d/99allow-unauth
-        echo "Acquire::AllowDowngradeToInsecureRepositories \"true\";" >> /etc/apt/apt.conf.d/99allow-unauth
-
-        chmod -R 755 /etc/apt/trusted.gpg.d /usr/share/keyrings 2>/dev/null || true
-
-        apt-get update -o Acquire::AllowInsecureRepositories=true -o Get::AllowUnauthenticated=true
-        apt-get install -y -qq ubuntu-keyring ca-certificates curl wget vim nano htop tmux sudo openssh-client python3
+    echo -e "${Y}▸ Bypassing APT limits & fixing cache permissions...${NC}"
+    
+    # Fix AppStream writable error permanently
+    mkdir -p "$ROOTFS_DIR/var/cache/swcatalog/cache"
+    chmod -R 777 "$ROOTFS_DIR/var/cache/swcatalog" 2>/dev/null || true
+    
+    # Execute bootstrapper inside proot
+    proot -0 -r "$ROOTFS_DIR" -w / /bin/bash -c '
+        export DEBIAN_FRONTEND=noninteractive
         
-        # Remove bypass once keyring is populated
-        rm -f /etc/apt/apt.conf.d/99allow-unauth
+        # Force-install Ubuntu GPG keys by downloading the raw DEB package (Bypasses NO_PUBKEY completely)
+        wget -q "http://archive.ubuntu.com/ubuntu/pool/main/u/ubuntu-keyring/ubuntu-keyring_2023.11.28.1_all.deb" -O /tmp/keyring.deb
+        dpkg -i /tmp/keyring.deb 2>/dev/null || true
+        rm -f /tmp/keyring.deb
+        
+        # Now apt-get update will verify flawlessly!
+        apt-get update -qq
+        apt-get install -y -qq curl wget vim nano htop tmux sudo openssh-client python3
         apt-get clean
     '
     
+    # Create user
     proot -0 -r "$ROOTFS_DIR" -w / /bin/bash -c '
         useradd -m -s /bin/bash dev 2>/dev/null || true
         echo "dev ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
     '
     
+    # Fetch user configuration
     REPO_RAW="https://raw.githubusercontent.com/vabshi8-cpu/bookish-lamp/main"
-    curl -sL "${REPO_RAW}/.bashrc" -o "$ROOTFS_DIR/home/dev/.bashrc"
-    chown 1000:1000 "$ROOTFS_DIR/home/dev/.bashrc" 2>/dev/null || true
+    curl -sL "${REPO_RAW}/.bashrc" -o "$ROOTFS_DIR/home/dev/.bashrc" 2>/dev/null || true
+    chown -R 1000:1000 "$ROOTFS_DIR/home/dev" 2>/dev/null || true
     
     touch "$ROOTFS_DIR/.setup_done"
 else
     echo -e "${G}▸ Ubuntu 24 rootfs already exists, skipping download.${NC}"
 fi
 
-# ── Start Tmate with clean environment ──
+# ── Start Tmate (Bulletproof Window Sizing) ──
 echo -e "${Y}▸ Starting Tmate (Ubuntu 24 session)...${NC}"
 
-PROOT_CMD="proot -0 -r $ROOTFS_DIR -b /proc -b /sys -w /home/dev /bin/bash --login"
+PROOT_CMD="proot -0 -r $ROOTFS_DIR -b /dev -b /proc -b /sys -w /home/dev /bin/bash"
 
-# Clean up stale locks
+# Clean up stale locks and TMUX environments
 unset TMUX
 tmate -S /tmp/tmate.sock kill-server 2>/dev/null || true
 rm -f /tmp/tmate.sock
 
-# Launch session
-tmate -S /tmp/tmate.sock new-session -d -x 256x48 "$PROOT_CMD"
+# Start tmate with absolute fallback dimensions (-x 120 width, -y 40 height)
+tmate -S /tmp/tmate.sock new-session -d -x 120 -y 40 "$PROOT_CMD"
 tmate -S /tmp/tmate.sock wait tmate-ready 2>/dev/null || true
 
 # Extract SSH and Web links
@@ -108,4 +115,4 @@ echo ""
 
 # Drop locally into rootfs shell
 echo -e "${Y}▸ Dropping into Ubuntu 24 shell locally...${NC}"
-exec $PROOT_CMD
+exec proot -0 -r "$ROOTFS_DIR" -b /dev -b /proc -b /sys -w /home/dev /bin/bash
