@@ -4,11 +4,19 @@ set +e
 export PROOT_NO_SECCOMP=1
 export DEBIAN_FRONTEND=noninteractive
 
-echo "=== Ubuntu 24.04 GUI Setup with localhost.run Tunnel ==="
+echo "=== Ubuntu 24.04 GUI Setup for Railway ==="
 
 # Install host-side dependencies
 apt-get update -y -qq || true
-apt-get install -y -qq websockify wget procps git curl openssh-client 2>/dev/null || true
+apt-get install -y -qq websockify wget procps git curl 2>/dev/null || true
+
+# Railway provides a dynamic PORT. Fall back to 6080 if not present.
+WEB_PORT="${PORT:-6080}"
+
+# Detect System Resources (RAM & Disk / ROM)
+TOTAL_RAM=$(free -h 2>/dev/null | awk '/Mem:/ {print $2}' || echo "Unknown")
+TOTAL_DISK=$(df -h / 2>/dev/null | awk 'NR==2 {print $2}' || echo "Unknown")
+AVAIL_DISK=$(df -h / 2>/dev/null | awk 'NR==2 {print $4}' || echo "Unknown")
 
 ROOTFS_DIR="$HOME/ubuntu24"
 mkdir -p "$ROOTFS_DIR"
@@ -57,8 +65,6 @@ fi
 
 kill $(pgrep -f Xvnc) 2>/dev/null || true
 kill $(pgrep -f websockify) 2>/dev/null || true
-kill $(pgrep -f localhost.run) 2>/dev/null || true
-rm -f /tmp/tunnel.log
 
 mkdir -p "$ROOTFS_DIR/root/.vnc"
 echo '#!/bin/bash' > "$ROOTFS_DIR/root/.vnc/xstartup"
@@ -72,46 +78,32 @@ echo "Starting VNC server..."
 proot -0 -r "$ROOTFS_DIR" -b /dev -b /proc -b /sys vncserver -kill :1 2>/dev/null || true
 proot -0 -r "$ROOTFS_DIR" -b /dev -b /proc -b /sys vncserver :1 -geometry 1280x720 -depth 24 2>/dev/null || true
 
-echo "Starting websockify on host..."
-websockify --web "$ROOTFS_DIR/usr/share/novnc/" 6080 localhost:5901 > /dev/null 2>&1 &
-
-echo "Starting tunnel..."
-ssh -o StrictHostKeyChecking=no -R 80:localhost:6080 localhost.run > /tmp/tunnel.log 2>&1 &
-
-echo "Waiting for tunnel URL..."
-WEB_URL=""
-for i in {1..20}; do
-    if [ -f /tmp/tunnel.log ]; then
-        WEB_URL=$(grep -o 'https://[^[:space:]]*localhost\.run' /tmp/tunnel.log | head -n 1)
-        if [ -n "$WEB_URL" ]; then
-            break
-        fi
-    fi
-    sleep 1
-done
-
-[ -z "$WEB_URL" ] && WEB_URL="https://failed-to-grab-url"
-DOMAIN_PART=$(echo "$WEB_URL" | cut -d'/' -f3)
+echo "Starting websockify on Railway port $WEB_PORT..."
+websockify --web "$ROOTFS_DIR/usr/share/novnc/" "$WEB_PORT" localhost:5901 > /dev/null 2>&1 &
 
 echo ""
 echo "=========================================================="
-echo " Ubuntu 24.04 GUI Desktop Ready (24/7 Tunnel Active)!"
-echo " URL:      $WEB_URL/vnc.html?host=$DOMAIN_PART&port=443&password=ubuntu"
+echo " Ubuntu 24.04 GUI Desktop Ready on Railway!"
+echo " --------------------------------------------------------"
+echo " Detected RAM:  $TOTAL_RAM"
+echo " Detected Disk: $TOTAL_DISK (Free: $AVAIL_DISK)"
+echo " --------------------------------------------------------"
+echo " How to access:"
+echo " 1. Go to your Railway project dashboard settings."
+echo " 2. Open your assigned public Domain URL."
+echo " 3. Use URL suffix: /vnc.html?password=ubuntu"
 echo " Password: ubuntu"
 echo "=========================================================="
 echo ""
-echo "Session is locked in 24/7 active mode. Do not close this terminal."
+echo "24/7 Uptime Guardian active. Railway will keep this running."
 
-# 24/7 Uptime Guardian Loop: Auto-restarts services if they drop
+# 24/7 Uptime Guardian Loop: Auto-restarts services if they drop & keeps container alive
 while true; do
     if ! pgrep -f Xvnc > /dev/null; then
         proot -0 -r "$ROOTFS_DIR" -b /dev -b /proc -b /sys vncserver :1 -geometry 1280x720 -depth 24 2>/dev/null || true
     fi
     if ! pgrep -f websockify > /dev/null; then
-        websockify --web "$ROOTFS_DIR/usr/share/novnc/" 6080 localhost:5901 > /dev/null 2>&1 &
-    fi
-    if ! pgrep -f localhost.run > /dev/null; then
-        ssh -o StrictHostKeyChecking=no -R 80:localhost:6080 localhost.run > /tmp/tunnel.log 2>&1 &
+        websockify --web "$ROOTFS_DIR/usr/share/novnc/" "$WEB_PORT" localhost:5901 > /dev/null 2>&1 &
     fi
     sleep 30
 done
