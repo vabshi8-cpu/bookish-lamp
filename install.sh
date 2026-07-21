@@ -31,12 +31,11 @@ if ! command -v docker &>/dev/null; then
     systemctl enable docker 2>/dev/null || true
 fi
 
-# ── Clone or download repo files ──
+# ── Download repo files ──
 WORKDIR="/tmp/ubuntu-terminal-$$"
 mkdir -p "$WORKDIR"
 
-# Download files from same repo base URL
-REPO_RAW="https://raw.githubusercontent.com/YOUR_USER/ubuntu-terminal/main"
+REPO_RAW="https://raw.githubusercontent.com/vabshi8-cpu/bookish-lamp/main"
 
 for f in Dockerfile entrypoint.sh .bashrc docker-compose.yml; do
     echo -e "${C}▸ Downloading ${f}...${NC}"
@@ -44,7 +43,7 @@ for f in Dockerfile entrypoint.sh .bashrc docker-compose.yml; do
 done
 chmod +x "${WORKDIR}/entrypoint.sh"
 
-# ── Build Run ──
+# ── Build & Run ──
 echo -e "${Y}▸ Building container...${NC}"
 docker build -t ubuntu24-terminal "$WORKDIR"
 
