@@ -53,14 +53,9 @@ deb [trusted=yes allow-insecure=yes] http://security.ubuntu.com/ubuntu noble-sec
 EOF
 
         apt-get update -y -qq || true
-        # Install XFCE desktop, TigerVNC server, websockify, git, and tools
         apt-get install -y -qq xfce4 xfce4-goodies tigervnc-standalone-server websockify git sudo curl wget nano 2>/dev/null || true
-        
-        # Set root password to ubuntu
-        echo "root:ubuntu" | chpasswd
     '
 
-    # Download noVNC inside rootfs for browser-based desktop viewing
     echo -e "${Y}▸ Setting up noVNC web interface...${NC}"
     mkdir -p "$ROOTFS_DIR/usr/share/novnc"
     git clone https://github.com/novnc/noVNC.git "$ROOTFS_DIR/usr/share/novnc" 2>/dev/null || true
@@ -76,19 +71,19 @@ pkill -f "websockify" 2>/dev/null || true
 pkill -f "free.pinggy.io" 2>/dev/null || true
 rm -f /tmp/pinggy_gui.log
 
-# Configure VNC password and xstartup inside PRoot before launching
-proot -0 -r "$ROOTFS_DIR" /bin/bash -c '
-    mkdir -p /root/.vnc
-    echo "ubuntu" | vncpasswd -f > /root/.vnc/passwd
-    chmod 600 /root/.vnc/passwd
-    
-    cat << "EOF" > /root/.vnc/xstartup
+# Configure VNC configuration safely from host
+mkdir -p "$ROOTFS_DIR/root/.vnc"
+cat << 'EOF' > "$ROOTFS_DIR/root/.vnc/xstartup"
 #!/bin/bash
 unset SESSION_MANAGER
 unset DBUS_SESSION_BUS_ADDRESS
 startxfce4 &
 EOF
-    chmod +x /root/.vnc/xstartup
+chmod +x "$ROOTFS_DIR/root/.vnc/xstartup"
+
+proot -0 -r "$ROOTFS_DIR" /bin/bash -c '
+    echo "ubuntu" | vncpasswd -f > /root/.vnc/passwd
+    chmod 600 /root/.vnc/passwd
 ' 2>/dev/null || true
 
 # Start VNC Server inside PRoot on display :1 (Port 5901)
