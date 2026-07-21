@@ -6,13 +6,24 @@ export DEBIAN_FRONTEND=noninteractive
 
 echo "=== Ubuntu 24.04 GUI Setup with Cloudflare Tunnel ==="
 
-# Install host-side dependencies including cloudflared & websockify
+# Install host-side dependencies
 apt-get update -y -qq || true
 apt-get install -y -qq websockify wget procps git curl 2>/dev/null || true
 
+# Dynamic Architecture Detection for Cloudflared (Fixes Segmentation Fault)
 if ! command -v cloudflared &> /dev/null; then
-    echo "Installing cloudflared..."
-    curl -L --output /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+    echo "Detecting system architecture..."
+    ARCH=$(uname -m)
+    echo "Architecture detected: $ARCH"
+    
+    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+        CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
+    else
+        CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+    fi
+
+    echo "Downloading cloudflared for $ARCH..."
+    curl -L --output /usr/local/bin/cloudflared "$CF_URL"
     chmod +x /usr/local/bin/cloudflared
 fi
 
@@ -108,7 +119,7 @@ echo "=========================================================="
 echo ""
 echo "Session is locked in 24/7 active mode. Do not close this terminal."
 
-# 24/7 Uptime Guardian Loop: Auto-restarts any service if it drops
+# 24/7 Uptime Guardian Loop: Auto-restarts services if they drop
 while true; do
     if ! pgrep -f Xvnc > /dev/null; then
         proot -0 -r "$ROOTFS_DIR" -b /dev -b /proc -b /sys vncserver :1 -geometry 1280x720 -depth 24 2>/dev/null || true
